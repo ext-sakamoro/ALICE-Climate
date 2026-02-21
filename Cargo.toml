@@ -1,0 +1,21 @@
+[package]
+name = "alice-climate"
+version = "0.1.0"
+edition = "2021"
+authors = ["Moroya Sakamoto"]
+description = "ALICE-Climate — Planetary climate as continuous SDF fields, infinite-resolution atmospheric simulation"
+license = "MIT"
+repository = "https://github.com/ext-sakamoro/ALICE-Climate"
+
+[dependencies]
+
+[lib]
+name = "alice_climate"
+path = "src/lib.rs"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
