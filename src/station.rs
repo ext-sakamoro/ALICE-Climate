@@ -176,4 +176,95 @@ mod tests {
             dist
         );
     }
+
+    // ── Additional tests for improved coverage ──────────────────────
+
+    #[test]
+    fn test_haversine_symmetry() {
+        let a = WeatherStation::new(1, "A", 35.6895, 139.6917, 0.0);
+        let b = WeatherStation::new(2, "B", 34.6937, 135.5023, 0.0);
+        let d_ab = a.distance_to(&b);
+        let d_ba = b.distance_to(&a);
+        assert!(
+            (d_ab - d_ba).abs() < 1e-6,
+            "Distance should be symmetric: {:.4} vs {:.4}",
+            d_ab,
+            d_ba
+        );
+    }
+
+    #[test]
+    fn test_haversine_equatorial_points() {
+        // Two points on the equator separated by 1 degree of longitude
+        // At equator, 1 degree ~= 111.32 km
+        let a = WeatherStation::new(1, "A", 0.0, 0.0, 0.0);
+        let b = WeatherStation::new(2, "B", 0.0, 1.0, 0.0);
+        let dist = a.distance_to(&b);
+        assert!(
+            (dist - 111.32).abs() < 1.0,
+            "1 degree at equator should be ~111.32 km, got {:.2} km",
+            dist
+        );
+    }
+
+    #[test]
+    fn test_haversine_poles_to_equator() {
+        // North pole to equator should be ~10 018 km (quarter circumference)
+        let pole = WeatherStation::new(1, "NP", 90.0, 0.0, 0.0);
+        let equator = WeatherStation::new(2, "EQ", 0.0, 0.0, 0.0);
+        let dist = pole.distance_to(&equator);
+        assert!(
+            (dist - 10_018.0).abs() < 30.0,
+            "Pole to equator should be ~10018 km, got {:.1} km",
+            dist
+        );
+    }
+
+    #[test]
+    fn test_station_id_equality() {
+        assert_eq!(StationId(42), StationId(42));
+        assert_ne!(StationId(1), StationId(2));
+    }
+
+    #[test]
+    fn test_station_different_ids_same_location() {
+        let s1 = WeatherStation::new(1, "StationA", 35.0, 139.0, 10.0);
+        let s2 = WeatherStation::new(2, "StationA", 35.0, 139.0, 10.0);
+        assert_ne!(s1.id, s2.id);
+        assert_eq!(s1.name_hash, s2.name_hash);
+        // Distance between same location should be ~0
+        assert!(s1.distance_to(&s2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_name_hash_empty_string() {
+        let s = WeatherStation::new(1, "", 0.0, 0.0, 0.0);
+        // Even empty string should produce a valid non-zero hash (FNV basis)
+        assert_ne!(s.name_hash, 0);
+    }
+
+    #[test]
+    fn test_observation_field_access() {
+        let obs = Observation {
+            station_id: StationId(100),
+            timestamp_ns: 1_000_000_000_000_000_000,
+            temperature_c: -40.0,
+            pressure_hpa: 980.0,
+            humidity_pct: 0.0,
+            wind_speed_ms: 50.0,
+            wind_direction_rad: std::f64::consts::PI,
+        };
+        assert_eq!(obs.station_id, StationId(100));
+        assert!((obs.temperature_c - (-40.0)).abs() < 1e-10);
+        assert!((obs.humidity_pct - 0.0).abs() < 1e-10);
+        assert!((obs.wind_speed_ms - 50.0).abs() < 1e-10);
+        assert!((obs.wind_direction_rad - std::f64::consts::PI).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_station_negative_altitude() {
+        // Weather station below sea level (e.g., Dead Sea)
+        let s = WeatherStation::new(1, "DeadSea", 31.5, 35.5, -430.0);
+        assert!((s.altitude_m - (-430.0)).abs() < 1e-10);
+    }
 }

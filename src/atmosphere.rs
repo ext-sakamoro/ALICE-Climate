@@ -108,8 +108,7 @@ pub fn standard_atmosphere(altitude_m: f64) -> AtmosphericState {
     // P [hPa] → [Pa]: multiply by 100
     // Pre-computed reciprocal: 1/287.05 ≈ 3.48368e-3
     const RCP_R_DRY: f64 = 1.0 / 287.05;
-    let density_kg_m3 =
-        pressure_hpa * 100.0 * RCP_R_DRY / (temperature_c + 273.15);
+    let density_kg_m3 = pressure_hpa * 100.0 * RCP_R_DRY / (temperature_c + 273.15);
 
     AtmosphericState {
         temperature_c,
@@ -144,7 +143,9 @@ pub fn temperature_field(lat: f64, _lon: f64, alt_m: f64, day_of_year: u32) -> f
     let seasonal_amplitude = 5.0 + 10.0 * lat_rad.sin().abs();
     let day_angle = 2.0 * std::f64::consts::PI * (day_of_year as f64 - 172.0) / 365.0;
     // Flip sign for southern hemisphere
-    let seasonal_correction = seasonal_amplitude * day_angle.cos() * lat.signum().max(1.0)
+    let seasonal_correction = seasonal_amplitude
+        * day_angle.cos()
+        * lat.signum().max(1.0)
         * if lat >= 0.0 { 1.0 } else { -1.0 };
 
     isa_t + lat_correction + seasonal_correction
@@ -231,11 +232,26 @@ mod tests {
 
     #[test]
     fn test_layer_from_altitude() {
-        assert_eq!(AtmosphericLayer::from_altitude(0.0), AtmosphericLayer::Troposphere);
-        assert_eq!(AtmosphericLayer::from_altitude(5_000.0), AtmosphericLayer::Troposphere);
-        assert_eq!(AtmosphericLayer::from_altitude(20_000.0), AtmosphericLayer::Stratosphere);
-        assert_eq!(AtmosphericLayer::from_altitude(65_000.0), AtmosphericLayer::Mesosphere);
-        assert_eq!(AtmosphericLayer::from_altitude(100_000.0), AtmosphericLayer::Thermosphere);
+        assert_eq!(
+            AtmosphericLayer::from_altitude(0.0),
+            AtmosphericLayer::Troposphere
+        );
+        assert_eq!(
+            AtmosphericLayer::from_altitude(5_000.0),
+            AtmosphericLayer::Troposphere
+        );
+        assert_eq!(
+            AtmosphericLayer::from_altitude(20_000.0),
+            AtmosphericLayer::Stratosphere
+        );
+        assert_eq!(
+            AtmosphericLayer::from_altitude(65_000.0),
+            AtmosphericLayer::Mesosphere
+        );
+        assert_eq!(
+            AtmosphericLayer::from_altitude(100_000.0),
+            AtmosphericLayer::Thermosphere
+        );
     }
 
     #[test]
@@ -253,7 +269,9 @@ mod tests {
 
     #[test]
     fn test_density_is_positive() {
-        for alt in [0.0, 1_000.0, 5_000.0, 11_000.0, 25_000.0, 60_000.0, 100_000.0] {
+        for alt in [
+            0.0, 1_000.0, 5_000.0, 11_000.0, 25_000.0, 60_000.0, 100_000.0,
+        ] {
             let state = standard_atmosphere(alt);
             assert!(
                 state.density_kg_m3 > 0.0,
@@ -291,5 +309,240 @@ mod tests {
         let (lo2, hi2) = AtmosphericLayer::Thermosphere.altitude_range_m();
         assert_eq!(lo2, 80_000.0);
         assert_eq!(hi2, 700_000.0);
+    }
+
+    // ── Additional tests for improved coverage ──────────────────────
+
+    #[test]
+    fn test_layer_from_negative_altitude_clamps_to_troposphere() {
+        // Negative altitudes should be clamped to Troposphere
+        assert_eq!(
+            AtmosphericLayer::from_altitude(-500.0),
+            AtmosphericLayer::Troposphere
+        );
+        assert_eq!(
+            AtmosphericLayer::from_altitude(-1.0),
+            AtmosphericLayer::Troposphere
+        );
+        assert_eq!(
+            AtmosphericLayer::from_altitude(f64::NEG_INFINITY),
+            AtmosphericLayer::Troposphere
+        );
+    }
+
+    #[test]
+    fn test_layer_from_very_high_altitude_is_thermosphere() {
+        // Extremely high altitudes remain Thermosphere
+        assert_eq!(
+            AtmosphericLayer::from_altitude(700_000.0),
+            AtmosphericLayer::Thermosphere
+        );
+        assert_eq!(
+            AtmosphericLayer::from_altitude(1_000_000.0),
+            AtmosphericLayer::Thermosphere
+        );
+    }
+
+    #[test]
+    fn test_layer_boundary_exact_values() {
+        // Test exact boundary values
+        assert_eq!(
+            AtmosphericLayer::from_altitude(11_999.9),
+            AtmosphericLayer::Troposphere
+        );
+        assert_eq!(
+            AtmosphericLayer::from_altitude(12_000.0),
+            AtmosphericLayer::Stratosphere
+        );
+        assert_eq!(
+            AtmosphericLayer::from_altitude(49_999.9),
+            AtmosphericLayer::Stratosphere
+        );
+        assert_eq!(
+            AtmosphericLayer::from_altitude(50_000.0),
+            AtmosphericLayer::Mesosphere
+        );
+        assert_eq!(
+            AtmosphericLayer::from_altitude(79_999.9),
+            AtmosphericLayer::Mesosphere
+        );
+        assert_eq!(
+            AtmosphericLayer::from_altitude(80_000.0),
+            AtmosphericLayer::Thermosphere
+        );
+    }
+
+    #[test]
+    fn test_all_layer_altitude_ranges() {
+        // Verify all four layers have correct ranges
+        let strat = AtmosphericLayer::Stratosphere.altitude_range_m();
+        assert_eq!(strat, (12_000.0, 50_000.0));
+
+        let meso = AtmosphericLayer::Mesosphere.altitude_range_m();
+        assert_eq!(meso, (50_000.0, 80_000.0));
+    }
+
+    #[test]
+    fn test_isa_negative_altitude_clamps_to_sea_level() {
+        // Negative altitude should clamp to 0 (sea level values)
+        let neg = standard_atmosphere(-100.0);
+        let zero = standard_atmosphere(0.0);
+        assert!((neg.temperature_c - zero.temperature_c).abs() < 1e-10);
+        assert!((neg.pressure_hpa - zero.pressure_hpa).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_isa_lower_stratosphere_isothermal() {
+        // Between 11 000 and 20 000 m, temperature should be ~-56.5 C (isothermal)
+        let s15 = standard_atmosphere(15_000.0);
+        assert!(
+            (s15.temperature_c - (-56.5)).abs() < 1.0,
+            "Lower stratosphere should be near -56.5 C, got {:.2}",
+            s15.temperature_c
+        );
+    }
+
+    #[test]
+    fn test_isa_upper_stratosphere_warms() {
+        // Above 20 km, temperature should start warming
+        let s30 = standard_atmosphere(30_000.0);
+        let s20 = standard_atmosphere(20_000.0);
+        assert!(
+            s30.temperature_c > s20.temperature_c,
+            "Upper stratosphere should be warmer than lower: {:.2} vs {:.2}",
+            s30.temperature_c,
+            s20.temperature_c
+        );
+    }
+
+    #[test]
+    fn test_isa_mesosphere_cools() {
+        // Mesosphere should be colder than upper stratosphere
+        let s70 = standard_atmosphere(70_000.0);
+        assert!(
+            s70.temperature_c < 0.0,
+            "Mesosphere should be very cold, got {:.2}",
+            s70.temperature_c
+        );
+    }
+
+    #[test]
+    fn test_isa_thermosphere_very_hot() {
+        // Thermosphere temperatures increase dramatically
+        let s100 = standard_atmosphere(100_000.0);
+        assert!(
+            s100.temperature_c > 200.0,
+            "Thermosphere should be very hot, got {:.2}",
+            s100.temperature_c
+        );
+    }
+
+    #[test]
+    fn test_pressure_monotonically_decreases_with_altitude() {
+        let altitudes = [
+            0.0, 5_000.0, 11_000.0, 15_000.0, 25_000.0, 50_000.0, 80_000.0, 100_000.0,
+        ];
+        for pair in altitudes.windows(2) {
+            let p_low = standard_atmosphere(pair[0]).pressure_hpa;
+            let p_high = standard_atmosphere(pair[1]).pressure_hpa;
+            assert!(
+                p_high < p_low,
+                "Pressure at {:.0} m ({:.4} hPa) should be less than at {:.0} m ({:.4} hPa)",
+                pair[1],
+                p_high,
+                pair[0],
+                p_low
+            );
+        }
+    }
+
+    #[test]
+    fn test_isa_humidity_and_wind_are_zero() {
+        // ISA standard atmosphere has zero humidity and wind
+        for alt in [0.0, 5_000.0, 20_000.0, 80_000.0] {
+            let state = standard_atmosphere(alt);
+            assert_eq!(state.humidity_pct, 0.0);
+            assert_eq!(state.wind_velocity_ms, [0.0; 3]);
+        }
+    }
+
+    #[test]
+    fn test_temperature_field_seasonal_variation() {
+        // In the Northern hemisphere, summer (day ~172) should be warmer than winter (day ~355)
+        let summer_t = temperature_field(45.0, 0.0, 0.0, 172);
+        let winter_t = temperature_field(45.0, 0.0, 0.0, 355);
+        assert!(
+            summer_t > winter_t,
+            "NH summer ({:.2}) should be warmer than winter ({:.2})",
+            summer_t,
+            winter_t
+        );
+    }
+
+    #[test]
+    fn test_temperature_field_southern_hemisphere_reversed_seasons() {
+        // Southern hemisphere: opposite seasonal pattern
+        let sh_summer = temperature_field(-45.0, 0.0, 0.0, 355); // southern summer
+        let sh_winter = temperature_field(-45.0, 0.0, 0.0, 172); // southern winter
+        assert!(
+            sh_summer > sh_winter,
+            "SH summer ({:.2}) should be warmer than SH winter ({:.2})",
+            sh_summer,
+            sh_winter
+        );
+    }
+
+    #[test]
+    fn test_wind_trade_winds_near_equator() {
+        // Trade winds between 0-30 latitude should blow westward (negative u)
+        let [u, _, _] = wind_field(15.0, 0.0, 0.0);
+        assert!(
+            u < 0.0,
+            "Trade winds at 15N should be easterly (negative u), got {:.4}",
+            u
+        );
+    }
+
+    #[test]
+    fn test_wind_westerlies_midlatitudes() {
+        // Westerlies between 30-60 latitude should blow eastward (positive u)
+        let [u, _, _] = wind_field(45.0, 0.0, 0.0);
+        assert!(
+            u > 0.0,
+            "Westerlies at 45N should be westerly (positive u), got {:.4}",
+            u
+        );
+    }
+
+    #[test]
+    fn test_wind_polar_easterlies() {
+        // Polar easterlies above 60 degrees
+        let [u, _, _] = wind_field(75.0, 0.0, 0.0);
+        assert!(
+            u < 0.0,
+            "Polar easterlies at 75N should be easterly (negative u), got {:.4}",
+            u
+        );
+    }
+
+    #[test]
+    fn test_wind_increases_with_altitude() {
+        let [u_low, _, _] = wind_field(45.0, 0.0, 0.0);
+        let [u_high, _, _] = wind_field(45.0, 0.0, 10_000.0);
+        assert!(
+            u_high.abs() > u_low.abs(),
+            "Wind at 10 km ({:.4}) should be stronger than at surface ({:.4})",
+            u_high.abs(),
+            u_low.abs()
+        );
+    }
+
+    #[test]
+    fn test_wind_vertical_component_is_zero() {
+        // The simplified model sets vertical wind to zero everywhere
+        for lat in [-60.0, -30.0, 0.0, 30.0, 60.0] {
+            let [_, _, w] = wind_field(lat, 0.0, 5_000.0);
+            assert_eq!(w, 0.0, "Vertical wind should be zero, got {:.6}", w);
+        }
     }
 }

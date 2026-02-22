@@ -120,8 +120,7 @@ pub fn ocean_pressure(depth_m: f64) -> f64 {
 /// * `salinity_psu` — Salinity in PSU.
 /// * `pressure_bar` — Pressure in bar.
 pub fn ocean_density(temperature_c: f64, salinity_psu: f64, pressure_bar: f64) -> f64 {
-    1025.0 + 0.8 * (salinity_psu - 35.0) - 0.2 * (temperature_c - 10.0)
-        + 0.05 * pressure_bar
+    1025.0 + 0.8 * (salinity_psu - 35.0) - 0.2 * (temperature_c - 10.0) + 0.05 * pressure_bar
 }
 
 /// Compute simplified ocean current velocity [u, v, w] in m/s.
@@ -287,5 +286,168 @@ mod tests {
         let (lo2, hi2) = OceanLayer::Abyssal.depth_range_m();
         assert_eq!(lo2, 4_000.0);
         assert_eq!(hi2, 11_000.0);
+    }
+
+    // ── Additional tests for improved coverage ──────────────────────
+
+    #[test]
+    fn test_layer_from_depth_all_layers() {
+        assert_eq!(OceanLayer::from_depth(0.0), OceanLayer::Surface);
+        assert_eq!(OceanLayer::from_depth(100.0), OceanLayer::Surface);
+        assert_eq!(OceanLayer::from_depth(199.9), OceanLayer::Surface);
+        assert_eq!(OceanLayer::from_depth(200.0), OceanLayer::Thermocline);
+        assert_eq!(OceanLayer::from_depth(500.0), OceanLayer::Thermocline);
+        assert_eq!(OceanLayer::from_depth(999.9), OceanLayer::Thermocline);
+        assert_eq!(OceanLayer::from_depth(1_000.0), OceanLayer::DeepOcean);
+        assert_eq!(OceanLayer::from_depth(3_000.0), OceanLayer::DeepOcean);
+        assert_eq!(OceanLayer::from_depth(3_999.9), OceanLayer::DeepOcean);
+        assert_eq!(OceanLayer::from_depth(4_000.0), OceanLayer::Abyssal);
+        assert_eq!(OceanLayer::from_depth(10_000.0), OceanLayer::Abyssal);
+    }
+
+    #[test]
+    fn test_layer_from_negative_depth_clamps_to_surface() {
+        assert_eq!(OceanLayer::from_depth(-100.0), OceanLayer::Surface);
+        assert_eq!(OceanLayer::from_depth(-1.0), OceanLayer::Surface);
+    }
+
+    #[test]
+    fn test_all_layer_depth_ranges() {
+        let thermo = OceanLayer::Thermocline.depth_range_m();
+        assert_eq!(thermo, (200.0, 1_000.0));
+
+        let deep = OceanLayer::DeepOcean.depth_range_m();
+        assert_eq!(deep, (1_000.0, 4_000.0));
+    }
+
+    #[test]
+    fn test_ocean_temperature_negative_depth_clamps() {
+        // Negative depth should be clamped to 0
+        let t_neg = ocean_temperature(-50.0, 0.0);
+        let t_zero = ocean_temperature(0.0, 0.0);
+        assert!(
+            (t_neg - t_zero).abs() < 1e-10,
+            "Negative depth should match surface: {:.4} vs {:.4}",
+            t_neg,
+            t_zero
+        );
+    }
+
+    #[test]
+    fn test_ocean_temperature_decreases_with_depth_equator() {
+        let t_surface = ocean_temperature(0.0, 0.0);
+        let t_100 = ocean_temperature(100.0, 0.0);
+        let t_500 = ocean_temperature(500.0, 0.0);
+        let t_2000 = ocean_temperature(2_000.0, 0.0);
+        assert!(
+            t_surface > t_100,
+            "Surface ({:.2}) > 100m ({:.2})",
+            t_surface,
+            t_100
+        );
+        assert!(t_100 > t_500, "100m ({:.2}) > 500m ({:.2})", t_100, t_500);
+        assert!(
+            t_500 > t_2000,
+            "500m ({:.2}) > 2000m ({:.2})",
+            t_500,
+            t_2000
+        );
+    }
+
+    #[test]
+    fn test_ocean_temperature_warmer_at_equator_than_high_lat() {
+        let t_equator = ocean_temperature(0.0, 0.0);
+        let t_high_lat = ocean_temperature(0.0, 60.0);
+        assert!(
+            t_equator > t_high_lat,
+            "Equator surface ({:.2}) should be warmer than 60N ({:.2})",
+            t_equator,
+            t_high_lat
+        );
+    }
+
+    #[test]
+    fn test_ocean_pressure_negative_depth_clamps() {
+        let p_neg = ocean_pressure(-200.0);
+        let p_zero = ocean_pressure(0.0);
+        assert!(
+            (p_neg - p_zero).abs() < 1e-10,
+            "Negative depth should clamp to surface pressure"
+        );
+    }
+
+    #[test]
+    fn test_ocean_pressure_increases_linearly_with_depth() {
+        let p0 = ocean_pressure(0.0);
+        let p1000 = ocean_pressure(1_000.0);
+        let p2000 = ocean_pressure(2_000.0);
+        let diff1 = p1000 - p0;
+        let diff2 = p2000 - p1000;
+        assert!(
+            (diff1 - diff2).abs() < 1e-10,
+            "Pressure increase should be linear: {:.4} vs {:.4}",
+            diff1,
+            diff2
+        );
+    }
+
+    #[test]
+    fn test_ocean_density_increases_with_pressure() {
+        let rho_low_p = ocean_density(10.0, 35.0, 1.0);
+        let rho_high_p = ocean_density(10.0, 35.0, 500.0);
+        assert!(
+            rho_high_p > rho_low_p,
+            "Density should increase with pressure"
+        );
+    }
+
+    #[test]
+    fn test_ocean_current_negative_depth_clamps() {
+        let c_neg = ocean_current(0.0, 0.0, -100.0);
+        let c_zero = ocean_current(0.0, 0.0, 0.0);
+        assert!(
+            (c_neg[0] - c_zero[0]).abs() < 1e-10,
+            "Negative depth current should match surface"
+        );
+    }
+
+    #[test]
+    fn test_ocean_current_high_latitude_eastward() {
+        // Antarctic Circumpolar Current: strong eastward at |lat| > 50
+        let [u, _, _] = ocean_current(55.0, 0.0, 0.0);
+        assert!(u > 0.0, "Current at 55N should be eastward, got {:.4}", u);
+    }
+
+    #[test]
+    fn test_ocean_current_equatorial_upwelling() {
+        // Vertical component at equator should be positive (upwelling)
+        let [_, _, w] = ocean_current(0.0, 0.0, 0.0);
+        assert!(
+            w > 0.0,
+            "Equatorial vertical current should be upwelling, got {:.6}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_ocean_current_away_from_equator_downwelling() {
+        // Outside equatorial belt, vertical component should be negative (downwelling)
+        let [_, _, w] = ocean_current(30.0, 0.0, 0.0);
+        assert!(
+            w < 0.0,
+            "Mid-latitude vertical current should be downwelling, got {:.6}",
+            w
+        );
+    }
+
+    #[test]
+    fn test_abyssal_temperature() {
+        // Abyssal zone (>4000m) should still have reasonable temperatures
+        let t = ocean_temperature(6_000.0, 0.0);
+        assert!(
+            t >= 1.0 && t <= 5.0,
+            "Abyssal temperature should be 1-5 C, got {:.2}",
+            t
+        );
     }
 }

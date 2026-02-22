@@ -71,7 +71,10 @@ pub struct ClimateAnomaly {
 #[inline(always)]
 fn fnv1a_f64_pair(a: f64, b: f64, kind: u8) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
-    for &byte in a.to_bits().to_le_bytes().iter()
+    for &byte in a
+        .to_bits()
+        .to_le_bytes()
+        .iter()
         .chain(b.to_bits().to_le_bytes().iter())
         .chain(std::slice::from_ref(&kind))
     {
@@ -131,7 +134,11 @@ pub fn evaluate_climate(query: &ClimateQuery) -> ClimateResponse {
         None
     };
 
-    ClimateResponse { atmosphere, ocean, layer }
+    ClimateResponse {
+        atmosphere,
+        ocean,
+        layer,
+    }
 }
 
 /// Evaluate climate at a batch of query points.
@@ -171,9 +178,15 @@ pub fn detect_anomaly(
     } else if wind_speed > 30.0 {
         (AnomalyKind::Storm, wind_speed)
     } else if current.humidity_pct < 10.0 && baseline.humidity_pct > 40.0 {
-        (AnomalyKind::Drought, baseline.humidity_pct - current.humidity_pct)
+        (
+            AnomalyKind::Drought,
+            baseline.humidity_pct - current.humidity_pct,
+        )
     } else if current.humidity_pct > 90.0 && baseline.humidity_pct < 60.0 {
-        (AnomalyKind::Flood, current.humidity_pct - baseline.humidity_pct)
+        (
+            AnomalyKind::Flood,
+            current.humidity_pct - baseline.humidity_pct,
+        )
     } else {
         return None;
     };
@@ -241,7 +254,10 @@ mod tests {
         // altitude = -500 m → depth = 500 m (thermocline)
         let q = make_query(0.0, 0.0, -500.0);
         let r = evaluate_climate(&q);
-        assert!(r.ocean.is_some(), "Ocean state should be present below sea level");
+        assert!(
+            r.ocean.is_some(),
+            "Ocean state should be present below sea level"
+        );
         let ocean = r.ocean.unwrap();
         assert!(ocean.temperature_c > 0.0);
         assert!(ocean.pressure_bar > 40.0); // 500m → ~51 bar
@@ -338,7 +354,10 @@ mod tests {
         };
         // Same state for baseline and current → no deviation
         let anomaly = detect_anomaly(&state, &state, 35.0, 139.0, 0);
-        assert!(anomaly.is_none(), "No anomaly expected for identical states");
+        assert!(
+            anomaly.is_none(),
+            "No anomaly expected for identical states"
+        );
     }
 
     #[test]
@@ -366,5 +385,309 @@ mod tests {
         let a1 = detect_anomaly(&current, &baseline, 35.0, 139.0, 0).unwrap();
         let a2 = detect_anomaly(&current, &baseline, 35.0, 139.0, 0).unwrap();
         assert_eq!(a1.content_hash, a2.content_hash);
+    }
+
+    // ── Additional tests for improved coverage ──────────────────────
+
+    #[test]
+    fn test_anomaly_drought_detection() {
+        let baseline = AtmosphericState {
+            temperature_c: 20.0,
+            pressure_hpa: 1013.25,
+            humidity_pct: 60.0, // baseline > 40%
+            wind_velocity_ms: [0.0; 3],
+            density_kg_m3: 1.2,
+        };
+        let current = AtmosphericState {
+            humidity_pct: 5.0, // current < 10%
+            ..baseline
+        };
+        let anomaly = detect_anomaly(&current, &baseline, 30.0, 0.0, 0);
+        assert!(anomaly.is_some());
+        let a = anomaly.unwrap();
+        assert_eq!(a.kind, AnomalyKind::Drought);
+        assert!(
+            (a.magnitude - 55.0).abs() < 0.01,
+            "Drought magnitude should be 55.0, got {:.2}",
+            a.magnitude
+        );
+    }
+
+    #[test]
+    fn test_anomaly_flood_detection() {
+        let baseline = AtmosphericState {
+            temperature_c: 20.0,
+            pressure_hpa: 1013.25,
+            humidity_pct: 50.0, // baseline < 60%
+            wind_velocity_ms: [0.0; 3],
+            density_kg_m3: 1.2,
+        };
+        let current = AtmosphericState {
+            humidity_pct: 95.0, // current > 90%
+            ..baseline
+        };
+        let anomaly = detect_anomaly(&current, &baseline, 10.0, 100.0, 0);
+        assert!(anomaly.is_some());
+        let a = anomaly.unwrap();
+        assert_eq!(a.kind, AnomalyKind::Flood);
+        assert!((a.magnitude - 45.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_anomaly_priority_heat_over_storm() {
+        // When both temperature deviation and wind speed exceed thresholds,
+        // heat wave should take priority (checked first)
+        let baseline = AtmosphericState {
+            temperature_c: 20.0,
+            pressure_hpa: 1013.25,
+            humidity_pct: 60.0,
+            wind_velocity_ms: [0.0; 3],
+            density_kg_m3: 1.2,
+        };
+        let current = AtmosphericState {
+            temperature_c: 45.0,                 // +25 deviation
+            wind_velocity_ms: [35.0, 15.0, 0.0], // ~38 m/s
+            ..baseline
+        };
+        let anomaly = detect_anomaly(&current, &baseline, 0.0, 0.0, 0);
+        assert!(anomaly.is_some());
+        assert_eq!(anomaly.unwrap().kind, AnomalyKind::HeatWave);
+    }
+
+    #[test]
+    fn test_anomaly_cold_snap_magnitude_is_absolute() {
+        let baseline = AtmosphericState {
+            temperature_c: 5.0,
+            pressure_hpa: 1013.25,
+            humidity_pct: 60.0,
+            wind_velocity_ms: [0.0; 3],
+            density_kg_m3: 1.2,
+        };
+        let current = AtmosphericState {
+            temperature_c: -20.0, // -25 deviation
+            ..baseline
+        };
+        let anomaly = detect_anomaly(&current, &baseline, 0.0, 0.0, 0).unwrap();
+        assert_eq!(anomaly.kind, AnomalyKind::ColdSnap);
+        assert!(
+            (anomaly.magnitude - 25.0).abs() < 0.01,
+            "ColdSnap magnitude should be abs value"
+        );
+    }
+
+    #[test]
+    fn test_anomaly_below_thresholds_returns_none() {
+        let baseline = AtmosphericState {
+            temperature_c: 20.0,
+            pressure_hpa: 1013.25,
+            humidity_pct: 50.0,
+            wind_velocity_ms: [5.0, 3.0, 0.0],
+            density_kg_m3: 1.2,
+        };
+        // Temperature deviation of +9 C (below 10 C threshold)
+        let current = AtmosphericState {
+            temperature_c: 29.0,
+            wind_velocity_ms: [10.0, 5.0, 0.0], // ~11 m/s (below 30)
+            humidity_pct: 50.0,
+            ..baseline
+        };
+        let anomaly = detect_anomaly(&current, &baseline, 0.0, 0.0, 0);
+        assert!(
+            anomaly.is_none(),
+            "Should not detect anomaly when below all thresholds"
+        );
+    }
+
+    #[test]
+    fn test_content_hash_differs_for_different_locations() {
+        let baseline = AtmosphericState {
+            temperature_c: 20.0,
+            pressure_hpa: 1013.25,
+            humidity_pct: 60.0,
+            wind_velocity_ms: [0.0; 3],
+            density_kg_m3: 1.2,
+        };
+        let current = AtmosphericState {
+            temperature_c: 50.0,
+            ..baseline
+        };
+        let a1 = detect_anomaly(&current, &baseline, 35.0, 139.0, 0).unwrap();
+        let a2 = detect_anomaly(&current, &baseline, 40.0, 139.0, 0).unwrap();
+        assert_ne!(
+            a1.content_hash, a2.content_hash,
+            "Different locations should have different hashes"
+        );
+    }
+
+    #[test]
+    fn test_content_hash_nonzero() {
+        let baseline = AtmosphericState {
+            temperature_c: 20.0,
+            pressure_hpa: 1013.25,
+            humidity_pct: 60.0,
+            wind_velocity_ms: [0.0; 3],
+            density_kg_m3: 1.2,
+        };
+        let current = AtmosphericState {
+            temperature_c: 50.0,
+            ..baseline
+        };
+        let a = detect_anomaly(&current, &baseline, 0.0, 0.0, 0).unwrap();
+        assert_ne!(a.content_hash, 0, "Content hash should never be zero");
+    }
+
+    #[test]
+    fn test_evaluate_climate_day_of_year_calculation() {
+        // Day 1 of year: timestamp = 0 should map to day 1
+        let q = ClimateQuery {
+            latitude: 0.0,
+            longitude: 0.0,
+            altitude_m: 0.0,
+            timestamp_ns: 0,
+        };
+        let r = evaluate_climate(&q);
+        // Should not panic and should produce valid values
+        assert!(r.atmosphere.temperature_c > -100.0 && r.atmosphere.temperature_c < 100.0);
+    }
+
+    #[test]
+    fn test_evaluate_climate_extreme_latitude() {
+        // North pole
+        let q_north = make_query(90.0, 0.0, 0.0);
+        let r_north = evaluate_climate(&q_north);
+        assert!(r_north.atmosphere.pressure_hpa > 0.0);
+
+        // South pole
+        let q_south = make_query(-90.0, 0.0, 0.0);
+        let r_south = evaluate_climate(&q_south);
+        assert!(r_south.atmosphere.pressure_hpa > 0.0);
+    }
+
+    #[test]
+    fn test_evaluate_climate_humidity_tropics_vs_poles() {
+        // Tropics should be more humid than polar regions at surface
+        let q_tropic = make_query(0.0, 0.0, 0.0);
+        let q_polar = make_query(80.0, 0.0, 0.0);
+        let r_tropic = evaluate_climate(&q_tropic);
+        let r_polar = evaluate_climate(&q_polar);
+        assert!(
+            r_tropic.atmosphere.humidity_pct > r_polar.atmosphere.humidity_pct,
+            "Tropical humidity ({:.1}%) should exceed polar ({:.1}%)",
+            r_tropic.atmosphere.humidity_pct,
+            r_polar.atmosphere.humidity_pct
+        );
+    }
+
+    #[test]
+    fn test_evaluate_climate_humidity_decreases_with_altitude() {
+        let q_low = make_query(30.0, 0.0, 0.0);
+        let q_high = make_query(30.0, 0.0, 8_000.0);
+        let r_low = evaluate_climate(&q_low);
+        let r_high = evaluate_climate(&q_high);
+        assert!(
+            r_low.atmosphere.humidity_pct > r_high.atmosphere.humidity_pct,
+            "Humidity at surface ({:.1}%) should exceed at 8km ({:.1}%)",
+            r_low.atmosphere.humidity_pct,
+            r_high.atmosphere.humidity_pct
+        );
+    }
+
+    #[test]
+    fn test_batch_empty_input() {
+        let batch = evaluate_climate_batch(&[]);
+        assert!(batch.is_empty(), "Empty input should produce empty output");
+    }
+
+    #[test]
+    fn test_batch_single_element() {
+        let q = make_query(35.0, 139.0, 0.0);
+        let batch = evaluate_climate_batch(&[q]);
+        assert_eq!(batch.len(), 1);
+        let single = evaluate_climate(&q);
+        assert!(
+            (batch[0].atmosphere.temperature_c - single.atmosphere.temperature_c).abs() < 1e-10
+        );
+    }
+
+    #[test]
+    fn test_evaluate_deep_ocean_query() {
+        // Very deep ocean point
+        let q = make_query(0.0, 0.0, -5_000.0);
+        let r = evaluate_climate(&q);
+        assert!(r.ocean.is_some());
+        let ocean = r.ocean.unwrap();
+        assert!(ocean.temperature_c >= 1.0 && ocean.temperature_c <= 5.0);
+        assert!(ocean.pressure_bar > 400.0); // 5000m ~= 501 bar
+        assert!(ocean.density_kg_m3 > 1020.0);
+        // Atmosphere should still be valid (surface-level baseline)
+        assert_eq!(r.layer, AtmosphericLayer::Troposphere);
+    }
+
+    #[test]
+    fn test_base_humidity_clamp_high_altitude() {
+        // At very high altitude, humidity should be clamped to >= 0
+        let q = make_query(0.0, 0.0, 20_000.0);
+        let r = evaluate_climate(&q);
+        assert!(
+            r.atmosphere.humidity_pct >= 0.0,
+            "Humidity should be >= 0, got {:.2}",
+            r.atmosphere.humidity_pct
+        );
+    }
+
+    #[test]
+    fn test_evaluate_mesosphere_layer() {
+        let q = make_query(0.0, 0.0, 60_000.0);
+        let r = evaluate_climate(&q);
+        assert_eq!(r.layer, AtmosphericLayer::Mesosphere);
+    }
+
+    #[test]
+    fn test_evaluate_thermosphere_layer() {
+        let q = make_query(0.0, 0.0, 100_000.0);
+        let r = evaluate_climate(&q);
+        assert_eq!(r.layer, AtmosphericLayer::Thermosphere);
+    }
+
+    #[test]
+    fn test_anomaly_location_stored_correctly() {
+        let baseline = AtmosphericState {
+            temperature_c: 20.0,
+            pressure_hpa: 1013.25,
+            humidity_pct: 60.0,
+            wind_velocity_ms: [0.0; 3],
+            density_kg_m3: 1.2,
+        };
+        let current = AtmosphericState {
+            temperature_c: 50.0,
+            ..baseline
+        };
+        let a = detect_anomaly(&current, &baseline, 35.5, 139.7, 12345).unwrap();
+        assert!((a.location_lat - 35.5).abs() < 1e-10);
+        assert!((a.location_lon - 139.7).abs() < 1e-10);
+        assert_eq!(a.timestamp_ns, 12345);
+    }
+
+    #[test]
+    fn test_fnv1a_deterministic_and_nonzero() {
+        // Test the internal hash function through the anomaly API
+        let baseline = AtmosphericState {
+            temperature_c: 0.0,
+            pressure_hpa: 1013.25,
+            humidity_pct: 60.0,
+            wind_velocity_ms: [0.0; 3],
+            density_kg_m3: 1.2,
+        };
+        let current = AtmosphericState {
+            temperature_c: 50.0,
+            ..baseline
+        };
+        // Test at various locations
+        for (lat, lon) in [(0.0, 0.0), (90.0, 180.0), (-45.0, -90.0)] {
+            let a1 = detect_anomaly(&current, &baseline, lat, lon, 0).unwrap();
+            let a2 = detect_anomaly(&current, &baseline, lat, lon, 0).unwrap();
+            assert_eq!(a1.content_hash, a2.content_hash);
+            assert_ne!(a1.content_hash, 0);
+        }
     }
 }
