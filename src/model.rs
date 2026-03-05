@@ -93,7 +93,7 @@ fn fnv1a_f64_pair(a: f64, b: f64, kind: u8) -> u64 {
 ///
 /// The atmospheric state is always computed (useful for sub-sea atmospheric
 /// baseline comparisons and surface boundary-layer coupling).
-#[must_use] 
+#[must_use]
 pub fn evaluate_climate(query: &ClimateQuery) -> ClimateResponse {
     let alt = query.altitude_m;
     let lat = query.latitude;
@@ -161,7 +161,7 @@ pub fn evaluate_climate_batch(queries: &[ClimateQuery]) -> Vec<ClimateResponse> 
 /// - Humidity > 90 % while baseline < 60 % → [`AnomalyKind::Flood`]
 ///
 /// Returns `None` if no anomaly threshold is exceeded.
-#[must_use] 
+#[must_use]
 pub fn detect_anomaly(
     current: &AtmosphericState,
     baseline: &AtmosphericState,
@@ -173,7 +173,7 @@ pub fn detect_anomaly(
 
     let u = current.wind_velocity_ms[0];
     let v = current.wind_velocity_ms[1];
-    let wind_speed = (u * u + v * v).sqrt();
+    let wind_speed = u.hypot(v);
 
     let (kind, magnitude) = if temp_dev > 10.0 {
         (AnomalyKind::HeatWave, temp_dev)
@@ -219,7 +219,7 @@ pub fn detect_anomaly(
 fn base_humidity(lat: f64, alt_m: f64) -> f64 {
     let lat_rad = lat.to_radians();
     // Tropical belt: ~80%, polar: ~40%, altitude dries air
-    let base = 40.0 + 40.0 * lat_rad.cos();
+    let base = 40.0f64.mul_add(lat_rad.cos(), 40.0);
     let alt_dry = (alt_m / 5_000.0) * 20.0;
     (base - alt_dry).clamp(0.0, 100.0)
 }
@@ -280,13 +280,11 @@ mod tests {
             let single = evaluate_climate(q);
             assert!(
                 (batch[i].atmosphere.temperature_c - single.atmosphere.temperature_c).abs() < 1e-10,
-                "Batch and single results differ at index {}",
-                i
+                "Batch and single results differ at index {i}"
             );
             assert!(
                 (batch[i].atmosphere.pressure_hpa - single.atmosphere.pressure_hpa).abs() < 1e-10,
-                "Pressure mismatch at index {}",
-                i
+                "Pressure mismatch at index {i}"
             );
         }
     }
@@ -692,6 +690,83 @@ mod tests {
             let a2 = detect_anomaly(&current, &baseline, lat, lon, 0).unwrap();
             assert_eq!(a1.content_hash, a2.content_hash);
             assert_ne!(a1.content_hash, 0);
+        }
+    }
+
+    #[test]
+    fn test_evaluate_climate_timestamp_day_of_year_wraps() {
+        // Two timestamps exactly 365 days apart (in seconds) should yield the
+        // same day_of_year and therefore the same temperature field output.
+        let base_ns: u64 = 180u64 * 24 * 3_600 * 1_000_000_000;
+        let year_ns: u64 = 365u64 * 24 * 3_600 * 1_000_000_000;
+        let q1 = ClimateQuery {
+            latitude: 45.0,
+            longitude: 0.0,
+            altitude_m: 0.0,
+            timestamp_ns: base_ns,
+        };
+        let q2 = ClimateQuery {
+            timestamp_ns: base_ns + year_ns,
+            ..q1
+        };
+        let r1 = evaluate_climate(&q1);
+        let r2 = evaluate_climate(&q2);
+        assert!(
+            (r1.atmosphere.temperature_c - r2.atmosphere.temperature_c).abs() < 1e-9,
+            "Same day-of-year one year apart should give identical temperature: {:.4} vs {:.4}",
+            r1.atmosphere.temperature_c,
+            r2.atmosphere.temperature_c
+        );
+    }
+
+    #[test]
+    fn test_evaluate_climate_ocean_salinity_constant() {
+        // The simplified model uses a constant salinity of 35 PSU everywhere.
+        for (lat, lon, depth) in [
+            (0.0_f64, 0.0_f64, -100.0_f64),
+            (30.0, 90.0, -2_000.0),
+            (-60.0, 180.0, -5_000.0),
+        ] {
+            let q = ClimateQuery {
+                latitude: lat,
+                longitude: lon,
+                altitude_m: depth,
+                timestamp_ns: 0,
+            };
+            let r = evaluate_climate(&q);
+            let ocean = r.ocean.expect("Should have ocean state");
+            assert!(
+                (ocean.salinity_psu - 35.0).abs() < 1e-10,
+                "Salinity should be 35 PSU everywhere, got {:.4} at lat={lat} lon={lon}",
+                ocean.salinity_psu
+            );
+        }
+    }
+
+    #[test]
+    fn test_evaluate_climate_batch_large_preserves_order() {
+        // Build 50 queries at varying latitudes; batch result order must match
+        // individual evaluation order exactly.
+        let queries: Vec<ClimateQuery> = (0u32..50)
+            .map(|i| ClimateQuery {
+                latitude: f64::from(i).mul_add(3.6, -90.0),
+                longitude: f64::from(i) * 7.2,
+                altitude_m: 0.0,
+                timestamp_ns: u64::from(i) * 86_400 * 1_000_000_000,
+            })
+            .collect();
+        let batch = evaluate_climate_batch(&queries);
+        assert_eq!(batch.len(), queries.len());
+        for (i, (q, b)) in queries.iter().zip(batch.iter()).enumerate() {
+            let single = evaluate_climate(q);
+            assert!(
+                (b.atmosphere.temperature_c - single.atmosphere.temperature_c).abs() < 1e-10,
+                "Batch order mismatch at index {i}"
+            );
+            assert!(
+                (b.atmosphere.pressure_hpa - single.atmosphere.pressure_hpa).abs() < 1e-10,
+                "Pressure order mismatch at index {i}"
+            );
         }
     }
 }

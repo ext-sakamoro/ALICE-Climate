@@ -65,7 +65,7 @@ impl WeatherStation {
     /// * `lat` — Latitude in decimal degrees.
     /// * `lon` — Longitude in decimal degrees.
     /// * `alt` — Altitude above sea level in metres.
-    #[must_use] 
+    #[must_use]
     pub fn new(id: u64, name: &str, lat: f64, lon: f64, alt: f64) -> Self {
         Self {
             id: StationId(id),
@@ -79,8 +79,9 @@ impl WeatherStation {
     /// Compute the haversine great-circle distance to another station in km.
     ///
     /// Uses Earth radius R = 6 371 km.
-    #[must_use] 
-    pub fn distance_to(&self, other: &WeatherStation) -> f64 {
+    #[must_use]
+    #[allow(clippy::suspicious_operation_groupings)]
+    pub fn distance_to(&self, other: &Self) -> f64 {
         const R_KM: f64 = 6_371.0;
         let lat1 = self.latitude.to_radians();
         let lat2 = other.latitude.to_radians();
@@ -123,8 +124,7 @@ mod tests {
         // Allow ±10 km tolerance around 396 km
         assert!(
             (dist - 396.0).abs() < 10.0,
-            "Expected ~396 km, got {:.1} km",
-            dist
+            "Expected ~396 km, got {dist:.1} km"
         );
     }
 
@@ -174,8 +174,7 @@ mod tests {
         let dist = london.distance_to(&sydney);
         assert!(
             (dist - 16_993.0).abs() < 50.0,
-            "Expected ~16993 km, got {:.1} km",
-            dist
+            "Expected ~16993 km, got {dist:.1} km"
         );
     }
 
@@ -189,9 +188,7 @@ mod tests {
         let d_ba = b.distance_to(&a);
         assert!(
             (d_ab - d_ba).abs() < 1e-6,
-            "Distance should be symmetric: {:.4} vs {:.4}",
-            d_ab,
-            d_ba
+            "Distance should be symmetric: {d_ab:.4} vs {d_ba:.4}"
         );
     }
 
@@ -204,8 +201,7 @@ mod tests {
         let dist = a.distance_to(&b);
         assert!(
             (dist - 111.32).abs() < 1.0,
-            "1 degree at equator should be ~111.32 km, got {:.2} km",
-            dist
+            "1 degree at equator should be ~111.32 km, got {dist:.2} km"
         );
     }
 
@@ -217,8 +213,7 @@ mod tests {
         let dist = pole.distance_to(&equator);
         assert!(
             (dist - 10_018.0).abs() < 30.0,
-            "Pole to equator should be ~10018 km, got {:.1} km",
-            dist
+            "Pole to equator should be ~10018 km, got {dist:.1} km"
         );
     }
 
@@ -268,5 +263,45 @@ mod tests {
         // Weather station below sea level (e.g., Dead Sea)
         let s = WeatherStation::new(1, "DeadSea", 31.5, 35.5, -430.0);
         assert!((s.altitude_m - (-430.0)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_station_id_usable_as_hash_map_key() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+        set.insert(StationId(1));
+        set.insert(StationId(2));
+        set.insert(StationId(1)); // duplicate
+        assert_eq!(
+            set.len(),
+            2,
+            "HashSet should deduplicate identical StationIds"
+        );
+        assert!(set.contains(&StationId(2)));
+        assert!(!set.contains(&StationId(99)));
+    }
+
+    #[test]
+    fn test_haversine_same_longitude_meridian_arc() {
+        // Two stations on the same meridian separated by 10 degrees of latitude.
+        // 10 degrees of latitude ~= 10 * 111.195 km ~= 1111.95 km
+        let north = WeatherStation::new(1, "N", 10.0, 45.0, 0.0);
+        let south = WeatherStation::new(2, "S", 0.0, 45.0, 0.0);
+        let dist = north.distance_to(&south);
+        assert!(
+            (dist - 1_111.95).abs() < 5.0,
+            "Meridian arc of 10 degrees should be ~1112 km, got {dist:.2} km"
+        );
+    }
+
+    #[test]
+    fn test_name_hash_case_sensitive() {
+        // FNV-1a is byte-level; "TOKYO" and "tokyo" must hash differently
+        let upper = WeatherStation::new(1, "TOKYO", 0.0, 0.0, 0.0);
+        let lower = WeatherStation::new(2, "tokyo", 0.0, 0.0, 0.0);
+        assert_ne!(
+            upper.name_hash, lower.name_hash,
+            "Hash should be case-sensitive"
+        );
     }
 }

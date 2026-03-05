@@ -19,8 +19,8 @@ pub enum OceanLayer {
 
 impl OceanLayer {
     /// Depth range (min, max) in metres for this layer.
-    #[must_use] 
-    pub fn depth_range_m(&self) -> (f64, f64) {
+    #[must_use]
+    pub const fn depth_range_m(&self) -> (f64, f64) {
         match self {
             Self::Surface => (0.0, 200.0),
             Self::Thermocline => (200.0, 1_000.0),
@@ -30,7 +30,7 @@ impl OceanLayer {
     }
 
     /// Determine the ocean layer for a given depth (metres, positive downward).
-    #[must_use] 
+    #[must_use]
     pub fn from_depth(depth_m: f64) -> Self {
         let d = depth_m.max(0.0);
         if d < 200.0 {
@@ -71,7 +71,7 @@ pub struct OceanState {
 ///
 /// * `depth_m` — Depth in metres (positive downward).
 /// * `latitude` — Latitude in decimal degrees.
-#[must_use] 
+#[must_use]
 pub fn ocean_temperature(depth_m: f64, latitude: f64) -> f64 {
     let d = depth_m.max(0.0);
 
@@ -82,19 +82,19 @@ pub fn ocean_temperature(depth_m: f64, latitude: f64) -> f64 {
     if d < 200.0 {
         // Mixed layer: linear interpolation from surface to mixed-layer base
         let t_base = (t_surface - 10.0).max(0.0); // ~10 °C colder at 200 m
-        t_surface - (t_surface - t_base) * (d * 5e-3)
+        (t_surface - t_base).mul_add(-(d * 5e-3), t_surface)
     } else if d < 1_000.0 {
         // Thermocline: rapid exponential decay
         let t_200 = (t_surface - 10.0).max(0.0);
         let t_deep = 3.5; // converge to 3.5 °C
         let frac = (d - 200.0) * 1.25e-3; // 0 at 200 m, 1 at 1000 m
-        t_200 + (t_deep - t_200) * (1.0 - (-3.0 * frac).exp())
+        (t_deep - t_200).mul_add(1.0 - (-3.0 * frac).exp(), t_200)
     } else {
         // Deep/Abyssal: slow approach to 2–4 °C depending on location
-        let t_deep = 2.0 + 2.0 * lat_rad.cos().abs();
+        let t_deep = 2.0f64.mul_add(lat_rad.cos().abs(), 2.0);
         let t_1km = 3.5;
         let frac = ((d - 1_000.0) * 1e-4).min(1.0);
-        t_1km + (t_deep - t_1km) * frac
+        (t_deep - t_1km).mul_add(frac, t_1km)
     }
 }
 
@@ -106,7 +106,7 @@ pub fn ocean_temperature(depth_m: f64, latitude: f64) -> f64 {
 /// # Arguments
 ///
 /// * `depth_m` — Depth in metres (positive downward).
-#[must_use] 
+#[must_use]
 pub fn ocean_pressure(depth_m: f64) -> f64 {
     let d = depth_m.max(0.0);
     1.01325 + d * 0.1
@@ -123,9 +123,15 @@ pub fn ocean_pressure(depth_m: f64) -> f64 {
 /// * `temperature_c` — Temperature in degrees Celsius.
 /// * `salinity_psu` — Salinity in PSU.
 /// * `pressure_bar` — Pressure in bar.
-#[must_use] 
+#[must_use]
 pub fn ocean_density(temperature_c: f64, salinity_psu: f64, pressure_bar: f64) -> f64 {
-    1025.0 + 0.8 * (salinity_psu - 35.0) - 0.2 * (temperature_c - 10.0) + 0.05 * pressure_bar
+    0.05f64.mul_add(
+        pressure_bar,
+        0.2f64.mul_add(
+            -(temperature_c - 10.0),
+            0.8f64.mul_add(salinity_psu - 35.0, 1025.0),
+        ),
+    )
 }
 
 /// Compute simplified ocean current velocity [u, v, w] in m/s.
@@ -141,7 +147,7 @@ pub fn ocean_density(temperature_c: f64, salinity_psu: f64, pressure_bar: f64) -
 /// * `lat` — Latitude in decimal degrees.
 /// * `lon` — Longitude in decimal degrees (not used in this simplified model).
 /// * `depth_m` — Depth in metres (positive downward).
-#[must_use] 
+#[must_use]
 pub fn ocean_current(lat: f64, _lon: f64, depth_m: f64) -> [f64; 3] {
     let d = depth_m.max(0.0);
 
@@ -184,6 +190,7 @@ pub fn ocean_current(lat: f64, _lon: f64, depth_m: f64) -> [f64; 3] {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
 
@@ -193,8 +200,7 @@ mod tests {
         let t = ocean_temperature(0.0, 0.0);
         assert!(
             (t - 25.0).abs() < 1.0,
-            "Expected ~25°C at equatorial surface, got {:.2}",
-            t
+            "Expected ~25°C at equatorial surface, got {t:.2}"
         );
     }
 
@@ -202,11 +208,7 @@ mod tests {
     fn test_surface_temperature_at_pole() {
         // At pole (lat=90), depth=0 → ~0 °C
         let t = ocean_temperature(0.0, 90.0);
-        assert!(
-            t.abs() < 2.0,
-            "Expected ~0°C at polar surface, got {:.2}",
-            t
-        );
+        assert!(t.abs() < 2.0, "Expected ~0°C at polar surface, got {t:.2}");
     }
 
     #[test]
@@ -215,8 +217,7 @@ mod tests {
         let p = ocean_pressure(1_000.0);
         assert!(
             (p - 101.01325).abs() < 0.1,
-            "Expected ~101 bar at 1000 m, got {:.4}",
-            p
+            "Expected ~101 bar at 1000 m, got {p:.4}"
         );
     }
 
@@ -232,8 +233,7 @@ mod tests {
         let rho = ocean_density(15.0, 35.0, 1.01325);
         assert!(
             rho > 1020.0 && rho < 1030.0,
-            "Density out of expected range: {:.2}",
-            rho
+            "Density out of expected range: {rho:.2}"
         );
     }
 
@@ -257,8 +257,7 @@ mod tests {
         // Equatorial current should be westward (negative u)
         assert!(
             u < 0.0,
-            "Equatorial current u should be negative (westward), got {:.4}",
-            u
+            "Equatorial current u should be negative (westward), got {u:.4}"
         );
     }
 
@@ -267,9 +266,8 @@ mod tests {
         // Below 1000 m, temperature should be 2–4 °C
         let t_deep = ocean_temperature(3_000.0, 30.0);
         assert!(
-            t_deep >= 2.0 && t_deep <= 4.5,
-            "Deep ocean temperature should be 2–4°C, got {:.2}",
-            t_deep
+            (2.0..=4.5).contains(&t_deep),
+            "Deep ocean temperature should be 2–4°C, got {t_deep:.2}"
         );
     }
 
@@ -333,9 +331,7 @@ mod tests {
         let t_zero = ocean_temperature(0.0, 0.0);
         assert!(
             (t_neg - t_zero).abs() < 1e-10,
-            "Negative depth should match surface: {:.4} vs {:.4}",
-            t_neg,
-            t_zero
+            "Negative depth should match surface: {t_neg:.4} vs {t_zero:.4}"
         );
     }
 
@@ -347,17 +343,10 @@ mod tests {
         let t_2000 = ocean_temperature(2_000.0, 0.0);
         assert!(
             t_surface > t_100,
-            "Surface ({:.2}) > 100m ({:.2})",
-            t_surface,
-            t_100
+            "Surface ({t_surface:.2}) > 100m ({t_100:.2})"
         );
-        assert!(t_100 > t_500, "100m ({:.2}) > 500m ({:.2})", t_100, t_500);
-        assert!(
-            t_500 > t_2000,
-            "500m ({:.2}) > 2000m ({:.2})",
-            t_500,
-            t_2000
-        );
+        assert!(t_100 > t_500, "100m ({t_100:.2}) > 500m ({t_500:.2})");
+        assert!(t_500 > t_2000, "500m ({t_500:.2}) > 2000m ({t_2000:.2})");
     }
 
     #[test]
@@ -366,9 +355,7 @@ mod tests {
         let t_high_lat = ocean_temperature(0.0, 60.0);
         assert!(
             t_equator > t_high_lat,
-            "Equator surface ({:.2}) should be warmer than 60N ({:.2})",
-            t_equator,
-            t_high_lat
+            "Equator surface ({t_equator:.2}) should be warmer than 60N ({t_high_lat:.2})"
         );
     }
 
@@ -391,9 +378,7 @@ mod tests {
         let diff2 = p2000 - p1000;
         assert!(
             (diff1 - diff2).abs() < 1e-10,
-            "Pressure increase should be linear: {:.4} vs {:.4}",
-            diff1,
-            diff2
+            "Pressure increase should be linear: {diff1:.4} vs {diff2:.4}"
         );
     }
 
@@ -421,7 +406,7 @@ mod tests {
     fn test_ocean_current_high_latitude_eastward() {
         // Antarctic Circumpolar Current: strong eastward at |lat| > 50
         let [u, _, _] = ocean_current(55.0, 0.0, 0.0);
-        assert!(u > 0.0, "Current at 55N should be eastward, got {:.4}", u);
+        assert!(u > 0.0, "Current at 55N should be eastward, got {u:.4}");
     }
 
     #[test]
@@ -430,8 +415,7 @@ mod tests {
         let [_, _, w] = ocean_current(0.0, 0.0, 0.0);
         assert!(
             w > 0.0,
-            "Equatorial vertical current should be upwelling, got {:.6}",
-            w
+            "Equatorial vertical current should be upwelling, got {w:.6}"
         );
     }
 
@@ -441,8 +425,7 @@ mod tests {
         let [_, _, w] = ocean_current(30.0, 0.0, 0.0);
         assert!(
             w < 0.0,
-            "Mid-latitude vertical current should be downwelling, got {:.6}",
-            w
+            "Mid-latitude vertical current should be downwelling, got {w:.6}"
         );
     }
 
@@ -451,9 +434,45 @@ mod tests {
         // Abyssal zone (>4000m) should still have reasonable temperatures
         let t = ocean_temperature(6_000.0, 0.0);
         assert!(
-            t >= 1.0 && t <= 5.0,
-            "Abyssal temperature should be 1-5 C, got {:.2}",
-            t
+            (1.0..=5.0).contains(&t),
+            "Abyssal temperature should be 1-5 C, got {t:.2}"
+        );
+    }
+
+    #[test]
+    fn test_thermocline_temperature_between_surface_and_deep() {
+        // At thermocline midpoint (600 m, equator), temperature must be strictly
+        // between the surface mixed-layer base (~15 C) and the deep asymptote (~3.5 C).
+        let t_surface = ocean_temperature(0.0, 0.0);
+        let t_thermo = ocean_temperature(600.0, 0.0);
+        let t_deep = ocean_temperature(2_000.0, 0.0);
+        assert!(
+            t_thermo < t_surface,
+            "Thermocline ({t_thermo:.2} C) must be cooler than surface ({t_surface:.2} C)"
+        );
+        assert!(
+            t_thermo > t_deep,
+            "Thermocline ({t_thermo:.2} C) must be warmer than deep ({t_deep:.2} C)"
+        );
+    }
+
+    #[test]
+    fn test_ocean_density_formula_reference_values() {
+        // At standard conditions (T=10, S=35, P=1) the formula gives exactly 1025.
+        // Verify the simplified UNESCO equation: rho = 1025 + 0.8*(S-35) - 0.2*(T-10) + 0.05*P
+        let rho = ocean_density(10.0, 35.0, 1.0);
+        // 1025 + 0.8*0 - 0.2*0 + 0.05*1 = 1025.05
+        assert!(
+            (rho - 1025.05).abs() < 1e-9,
+            "Reference density at T=10, S=35, P=1 should be 1025.05, got {rho:.6}"
+        );
+
+        // Cold, saline, high-pressure deep water should be denser than warm surface
+        let rho_deep = ocean_density(2.0, 35.0, 400.0);
+        let rho_surf = ocean_density(25.0, 35.0, 1.0);
+        assert!(
+            rho_deep > rho_surf,
+            "Cold high-pressure deep water ({rho_deep:.2}) should be denser than warm surface ({rho_surf:.2})"
         );
     }
 }

@@ -19,8 +19,8 @@ pub enum AtmosphericLayer {
 
 impl AtmosphericLayer {
     /// Altitude range (min, max) in metres for this layer.
-    #[must_use] 
-    pub fn altitude_range_m(&self) -> (f64, f64) {
+    #[must_use]
+    pub const fn altitude_range_m(&self) -> (f64, f64) {
         match self {
             Self::Troposphere => (0.0, 12_000.0),
             Self::Stratosphere => (12_000.0, 50_000.0),
@@ -33,7 +33,7 @@ impl AtmosphericLayer {
     ///
     /// Values below 0 are clamped to `Troposphere`. Values above 700 000 m
     /// are also returned as `Thermosphere`.
-    #[must_use] 
+    #[must_use]
     pub fn from_altitude(alt_m: f64) -> Self {
         let h = alt_m.max(0.0);
         if h < 12_000.0 {
@@ -71,7 +71,7 @@ pub struct AtmosphericState {
 /// # Arguments
 ///
 /// * `altitude_m` — Geometric altitude in metres above sea level.
-#[must_use] 
+#[must_use]
 pub fn standard_atmosphere(altitude_m: f64) -> AtmosphericState {
     // Pre-computed reciprocal: 1/287.05 ≈ 3.48368e-3
     const RCP_R_DRY: f64 = 1.0 / 287.05;
@@ -80,8 +80,8 @@ pub fn standard_atmosphere(altitude_m: f64) -> AtmosphericState {
 
     let (temperature_c, pressure_hpa) = if h < 11_000.0 {
         // Troposphere: linear temperature lapse, power-law pressure
-        let t = 15.0 - 6.5e-3 * h;
-        let p = 1013.25 * (1.0 - 2.2558e-5 * h).powf(5.2559);
+        let t = 6.5e-3f64.mul_add(-h, 15.0);
+        let p = 1013.25 * 2.2558e-5f64.mul_add(-h, 1.0).powf(5.2559);
         (t, p)
     } else if h < 20_000.0 {
         // Lower stratosphere: isothermal at -56.5 °C
@@ -90,13 +90,13 @@ pub fn standard_atmosphere(altitude_m: f64) -> AtmosphericState {
         (t, p)
     } else if h < 50_000.0 {
         // Upper stratosphere: slight warming, simplified pressure
-        let t = -56.5 + 1.0e-3 * (h - 20_000.0);
+        let t = 1.0e-3f64.mul_add(h - 20_000.0, -56.5);
         let p_20k = 226.32 * ((-1.5769e-4) * 9_000.0_f64).exp();
         let p = p_20k * ((-1.0e-4) * (h - 20_000.0)).exp();
         (t, p)
     } else if h < 80_000.0 {
         // Mesosphere: temperature drops again
-        let t = -2.5 - 2.8e-3 * (h - 50_000.0);
+        let t = 2.8e-3f64.mul_add(-(h - 50_000.0), -2.5);
         let p_50k = {
             let p_20k = 226.32 * ((-1.5769e-4) * 9_000.0_f64).exp();
             p_20k * ((-1.0e-4) * 30_000.0_f64).exp()
@@ -105,7 +105,7 @@ pub fn standard_atmosphere(altitude_m: f64) -> AtmosphericState {
         (t, p)
     } else {
         // Thermosphere: very hot, very low pressure
-        let t = 200.0 + 3.0e-3 * (h - 80_000.0);
+        let t = 3.0e-3f64.mul_add(h - 80_000.0, 200.0);
         let p = 0.001 * ((-2.0e-5) * (h - 80_000.0)).exp();
         (t, p)
     };
@@ -132,7 +132,7 @@ pub fn standard_atmosphere(altitude_m: f64) -> AtmosphericState {
 /// * `lon` — Longitude in decimal degrees (not used in this simplified model).
 /// * `alt_m` — Altitude above sea level in metres.
 /// * `day_of_year` — Day of year (1–365).
-#[must_use] 
+#[must_use]
 pub fn temperature_field(lat: f64, _lon: f64, alt_m: f64, day_of_year: u32) -> f64 {
     // ISA base temperature at this altitude
     let isa = standard_atmosphere(alt_m);
@@ -145,7 +145,7 @@ pub fn temperature_field(lat: f64, _lon: f64, alt_m: f64, day_of_year: u32) -> f
     // Seasonal variation: simple cosine model
     // Northern hemisphere summer peak around day 172 (June 21)
     // Amplitude: ±15 °C at poles, ±5 °C at equator
-    let seasonal_amplitude = 5.0 + 10.0 * lat_rad.sin().abs();
+    let seasonal_amplitude = 10.0f64.mul_add(lat_rad.sin().abs(), 5.0);
     let day_angle = 2.0 * std::f64::consts::PI * (f64::from(day_of_year) - 172.0) / 365.0;
     // Flip sign for southern hemisphere
     let seasonal_correction = seasonal_amplitude
@@ -172,7 +172,7 @@ pub fn temperature_field(lat: f64, _lon: f64, alt_m: f64, day_of_year: u32) -> f
 /// * `lat` — Latitude in decimal degrees.
 /// * `lon` — Longitude in decimal degrees (not used in this model).
 /// * `alt_m` — Altitude in metres.
-#[must_use] 
+#[must_use]
 pub fn wind_field(lat: f64, _lon: f64, alt_m: f64) -> [f64; 3] {
     let lat_rad = lat.to_radians();
 
@@ -207,6 +207,7 @@ pub fn wind_field(lat: f64, _lon: f64, alt_m: f64) -> [f64; 3] {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
 
@@ -267,9 +268,7 @@ mod tests {
         let pole = temperature_field(90.0, 0.0, 0.0, 180);
         assert!(
             equator > pole,
-            "Equator ({:.1}°C) should be warmer than pole ({:.1}°C)",
-            equator,
-            pole
+            "Equator ({equator:.1}°C) should be warmer than pole ({pole:.1}°C)"
         );
     }
 
@@ -294,9 +293,7 @@ mod tests {
         let high = standard_atmosphere(10_000.0).density_kg_m3;
         assert!(
             high < low,
-            "Density at 10 km ({:.4}) should be less than at sea level ({:.4})",
-            high,
-            low
+            "Density at 10 km ({high:.4}) should be less than at sea level ({low:.4})"
         );
     }
 
@@ -479,9 +476,7 @@ mod tests {
         let winter_t = temperature_field(45.0, 0.0, 0.0, 355);
         assert!(
             summer_t > winter_t,
-            "NH summer ({:.2}) should be warmer than winter ({:.2})",
-            summer_t,
-            winter_t
+            "NH summer ({summer_t:.2}) should be warmer than winter ({winter_t:.2})"
         );
     }
 
@@ -492,9 +487,7 @@ mod tests {
         let sh_winter = temperature_field(-45.0, 0.0, 0.0, 172); // southern winter
         assert!(
             sh_summer > sh_winter,
-            "SH summer ({:.2}) should be warmer than SH winter ({:.2})",
-            sh_summer,
-            sh_winter
+            "SH summer ({sh_summer:.2}) should be warmer than SH winter ({sh_winter:.2})"
         );
     }
 
@@ -504,8 +497,7 @@ mod tests {
         let [u, _, _] = wind_field(15.0, 0.0, 0.0);
         assert!(
             u < 0.0,
-            "Trade winds at 15N should be easterly (negative u), got {:.4}",
-            u
+            "Trade winds at 15N should be easterly (negative u), got {u:.4}"
         );
     }
 
@@ -515,8 +507,7 @@ mod tests {
         let [u, _, _] = wind_field(45.0, 0.0, 0.0);
         assert!(
             u > 0.0,
-            "Westerlies at 45N should be westerly (positive u), got {:.4}",
-            u
+            "Westerlies at 45N should be westerly (positive u), got {u:.4}"
         );
     }
 
@@ -526,8 +517,7 @@ mod tests {
         let [u, _, _] = wind_field(75.0, 0.0, 0.0);
         assert!(
             u < 0.0,
-            "Polar easterlies at 75N should be easterly (negative u), got {:.4}",
-            u
+            "Polar easterlies at 75N should be easterly (negative u), got {u:.4}"
         );
     }
 
@@ -548,7 +538,7 @@ mod tests {
         // The simplified model sets vertical wind to zero everywhere
         for lat in [-60.0, -30.0, 0.0, 30.0, 60.0] {
             let [_, _, w] = wind_field(lat, 0.0, 5_000.0);
-            assert_eq!(w, 0.0, "Vertical wind should be zero, got {:.6}", w);
+            assert_eq!(w, 0.0, "Vertical wind should be zero, got {w:.6}");
         }
     }
 }

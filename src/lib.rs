@@ -38,6 +38,8 @@
 //! ```
 
 pub mod atmosphere;
+#[cfg(feature = "ffi")]
+pub mod ffi;
 pub mod model;
 pub mod ocean;
 pub mod station;

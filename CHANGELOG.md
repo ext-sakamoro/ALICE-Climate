@@ -2,6 +2,20 @@
 
 All notable changes to ALICE-Climate will be documented in this file.
 
+## [0.1.1] - 2026-03-04
+
+### Added
+- `ffi` — 17 `al_clm_*` extern "C" functions (Atmosphere 5, Ocean 6, Model 3, Station 2, Utility 1)
+- `ffi` — 7 `#[repr(C)]` structs: `FfiAtmosphericState`, `FfiOceanState`, `FfiClimateQuery`, `FfiClimateResponse`, `FfiClimateAnomaly`, `FfiWeatherStation`, `FfiObservation`
+- `ffi` — 16 FFI tests (lifecycle, null safety, batch, anomaly)
+- `bindings/unity/AliceClimate.cs` — 17 DllImport + 7 structs
+- `bindings/ue5/AliceClimate.h` — 17 extern C + 7 structs
+- `Cargo.toml` — `crate-type = ["rlib", "staticlib", "cdylib"]`, `ffi` feature
+- `README.md`
+
+### Changed
+- Total tests: 95 → 111
+
 ## [0.1.0] - 2026-02-23
 
 ### Added
