@@ -38,10 +38,13 @@
 //! ```
 
 pub mod atmosphere;
+pub mod coupling;
 #[cfg(feature = "ffi")]
 pub mod ffi;
 pub mod model;
 pub mod ocean;
+pub mod simulation;
+pub mod solar;
 pub mod station;
 
 pub use atmosphere::{
@@ -55,3 +58,13 @@ pub use ocean::{
     ocean_current, ocean_density, ocean_pressure, ocean_temperature, OceanLayer, OceanState,
 };
 pub use station::{Observation, StationId, WeatherStation};
+
+pub use coupling::{
+    compute_coupled_state, coupled_step, evaporation_rate, latent_heat_flux, net_heat_flux,
+    sensible_heat_flux, BulkCoefficients, CoupledState,
+};
+pub use simulation::{SimulationConfig, SimulationState, StepResult};
+pub use solar::{
+    cos_solar_zenith, diurnal_temperature_correction, insolation, seasonal_temperature_correction,
+    solar_declination, solar_hour_angle, solar_zenith_angle, surface_insolation, SOLAR_CONSTANT,
+};
