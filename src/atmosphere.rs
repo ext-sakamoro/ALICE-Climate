@@ -19,6 +19,7 @@ pub enum AtmosphericLayer {
 
 impl AtmosphericLayer {
     /// Altitude range (min, max) in metres for this layer.
+    #[must_use] 
     pub fn altitude_range_m(&self) -> (f64, f64) {
         match self {
             Self::Troposphere => (0.0, 12_000.0),
@@ -32,6 +33,7 @@ impl AtmosphericLayer {
     ///
     /// Values below 0 are clamped to `Troposphere`. Values above 700 000 m
     /// are also returned as `Thermosphere`.
+    #[must_use] 
     pub fn from_altitude(alt_m: f64) -> Self {
         let h = alt_m.max(0.0);
         if h < 12_000.0 {
@@ -69,7 +71,11 @@ pub struct AtmosphericState {
 /// # Arguments
 ///
 /// * `altitude_m` — Geometric altitude in metres above sea level.
+#[must_use] 
 pub fn standard_atmosphere(altitude_m: f64) -> AtmosphericState {
+    // Pre-computed reciprocal: 1/287.05 ≈ 3.48368e-3
+    const RCP_R_DRY: f64 = 1.0 / 287.05;
+
     let h = altitude_m.max(0.0);
 
     let (temperature_c, pressure_hpa) = if h < 11_000.0 {
@@ -106,8 +112,6 @@ pub fn standard_atmosphere(altitude_m: f64) -> AtmosphericState {
 
     // Ideal gas law: ρ = P [Pa] / (R_dry [J/(kg·K)] * T [K])
     // P [hPa] → [Pa]: multiply by 100
-    // Pre-computed reciprocal: 1/287.05 ≈ 3.48368e-3
-    const RCP_R_DRY: f64 = 1.0 / 287.05;
     let density_kg_m3 = pressure_hpa * 100.0 * RCP_R_DRY / (temperature_c + 273.15);
 
     AtmosphericState {
@@ -128,6 +132,7 @@ pub fn standard_atmosphere(altitude_m: f64) -> AtmosphericState {
 /// * `lon` — Longitude in decimal degrees (not used in this simplified model).
 /// * `alt_m` — Altitude above sea level in metres.
 /// * `day_of_year` — Day of year (1–365).
+#[must_use] 
 pub fn temperature_field(lat: f64, _lon: f64, alt_m: f64, day_of_year: u32) -> f64 {
     // ISA base temperature at this altitude
     let isa = standard_atmosphere(alt_m);
@@ -141,7 +146,7 @@ pub fn temperature_field(lat: f64, _lon: f64, alt_m: f64, day_of_year: u32) -> f
     // Northern hemisphere summer peak around day 172 (June 21)
     // Amplitude: ±15 °C at poles, ±5 °C at equator
     let seasonal_amplitude = 5.0 + 10.0 * lat_rad.sin().abs();
-    let day_angle = 2.0 * std::f64::consts::PI * (day_of_year as f64 - 172.0) / 365.0;
+    let day_angle = 2.0 * std::f64::consts::PI * (f64::from(day_of_year) - 172.0) / 365.0;
     // Flip sign for southern hemisphere
     let seasonal_correction = seasonal_amplitude
         * day_angle.cos()
@@ -167,6 +172,7 @@ pub fn temperature_field(lat: f64, _lon: f64, alt_m: f64, day_of_year: u32) -> f
 /// * `lat` — Latitude in decimal degrees.
 /// * `lon` — Longitude in decimal degrees (not used in this model).
 /// * `alt_m` — Altitude in metres.
+#[must_use] 
 pub fn wind_field(lat: f64, _lon: f64, alt_m: f64) -> [f64; 3] {
     let lat_rad = lat.to_radians();
 

@@ -19,6 +19,7 @@ pub enum OceanLayer {
 
 impl OceanLayer {
     /// Depth range (min, max) in metres for this layer.
+    #[must_use] 
     pub fn depth_range_m(&self) -> (f64, f64) {
         match self {
             Self::Surface => (0.0, 200.0),
@@ -29,6 +30,7 @@ impl OceanLayer {
     }
 
     /// Determine the ocean layer for a given depth (metres, positive downward).
+    #[must_use] 
     pub fn from_depth(depth_m: f64) -> Self {
         let d = depth_m.max(0.0);
         if d < 200.0 {
@@ -69,6 +71,7 @@ pub struct OceanState {
 ///
 /// * `depth_m` — Depth in metres (positive downward).
 /// * `latitude` — Latitude in decimal degrees.
+#[must_use] 
 pub fn ocean_temperature(depth_m: f64, latitude: f64) -> f64 {
     let d = depth_m.max(0.0);
 
@@ -103,6 +106,7 @@ pub fn ocean_temperature(depth_m: f64, latitude: f64) -> f64 {
 /// # Arguments
 ///
 /// * `depth_m` — Depth in metres (positive downward).
+#[must_use] 
 pub fn ocean_pressure(depth_m: f64) -> f64 {
     let d = depth_m.max(0.0);
     1.01325 + d * 0.1
@@ -119,6 +123,7 @@ pub fn ocean_pressure(depth_m: f64) -> f64 {
 /// * `temperature_c` — Temperature in degrees Celsius.
 /// * `salinity_psu` — Salinity in PSU.
 /// * `pressure_bar` — Pressure in bar.
+#[must_use] 
 pub fn ocean_density(temperature_c: f64, salinity_psu: f64, pressure_bar: f64) -> f64 {
     1025.0 + 0.8 * (salinity_psu - 35.0) - 0.2 * (temperature_c - 10.0) + 0.05 * pressure_bar
 }
@@ -136,6 +141,7 @@ pub fn ocean_density(temperature_c: f64, salinity_psu: f64, pressure_bar: f64) -
 /// * `lat` — Latitude in decimal degrees.
 /// * `lon` — Longitude in decimal degrees (not used in this simplified model).
 /// * `depth_m` — Depth in metres (positive downward).
+#[must_use] 
 pub fn ocean_current(lat: f64, _lon: f64, depth_m: f64) -> [f64; 3] {
     let d = depth_m.max(0.0);
 

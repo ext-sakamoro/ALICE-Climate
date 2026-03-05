@@ -4,6 +4,8 @@
 //! logic. Queries can be issued at any geographic location and altitude;
 //! negative altitudes are interpreted as ocean depth.
 
+use rayon::prelude::*;
+
 use crate::atmosphere::{
     standard_atmosphere, temperature_field, wind_field, AtmosphericLayer, AtmosphericState,
 };
@@ -17,7 +19,7 @@ pub struct ClimateQuery {
     /// Longitude in decimal degrees (−180 to +180).
     pub longitude: f64,
     /// Altitude above sea level in metres.
-    /// Negative values are treated as ocean depth (|altitude_m|).
+    /// Negative values are treated as ocean depth (|`altitude_m`|).
     pub altitude_m: f64,
     /// Timestamp in nanoseconds since Unix epoch.
     pub timestamp_ns: u64,
@@ -68,9 +70,9 @@ pub struct ClimateAnomaly {
 }
 
 /// FNV-1a 64-bit hash used to generate `content_hash` for anomalies.
-#[inline(always)]
+#[inline]
 fn fnv1a_f64_pair(a: f64, b: f64, kind: u8) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325;
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for &byte in a
         .to_bits()
         .to_le_bytes()
@@ -78,8 +80,8 @@ fn fnv1a_f64_pair(a: f64, b: f64, kind: u8) -> u64 {
         .chain(b.to_bits().to_le_bytes().iter())
         .chain(std::slice::from_ref(&kind))
     {
-        h ^= byte as u64;
-        h = h.wrapping_mul(0x100000001b3);
+        h ^= u64::from(byte);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
     h
 }
@@ -91,6 +93,7 @@ fn fnv1a_f64_pair(a: f64, b: f64, kind: u8) -> u64 {
 ///
 /// The atmospheric state is always computed (useful for sub-sea atmospheric
 /// baseline comparisons and surface boundary-layer coupling).
+#[must_use] 
 pub fn evaluate_climate(query: &ClimateQuery) -> ClimateResponse {
     let alt = query.altitude_m;
     let lat = query.latitude;
@@ -145,7 +148,7 @@ pub fn evaluate_climate(query: &ClimateQuery) -> ClimateResponse {
 ///
 /// Results are returned in the same order as `queries`.
 pub fn evaluate_climate_batch(queries: &[ClimateQuery]) -> Vec<ClimateResponse> {
-    queries.iter().map(evaluate_climate).collect()
+    queries.par_iter().map(evaluate_climate).collect()
 }
 
 /// Detect a climate anomaly by comparing current state against a baseline.
@@ -158,6 +161,7 @@ pub fn evaluate_climate_batch(queries: &[ClimateQuery]) -> Vec<ClimateResponse> 
 /// - Humidity > 90 % while baseline < 60 % → [`AnomalyKind::Flood`]
 ///
 /// Returns `None` if no anomaly threshold is exceeded.
+#[must_use] 
 pub fn detect_anomaly(
     current: &AtmosphericState,
     baseline: &AtmosphericState,

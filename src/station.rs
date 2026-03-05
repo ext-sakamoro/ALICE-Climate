@@ -43,12 +43,12 @@ pub struct WeatherStation {
 }
 
 /// FNV-1a 64-bit hash of a byte slice.
-#[inline(always)]
+#[inline]
 fn fnv1a(data: &[u8]) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325;
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for &b in data {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x100000001b3);
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
     h
 }
@@ -65,6 +65,7 @@ impl WeatherStation {
     /// * `lat` — Latitude in decimal degrees.
     /// * `lon` — Longitude in decimal degrees.
     /// * `alt` — Altitude above sea level in metres.
+    #[must_use] 
     pub fn new(id: u64, name: &str, lat: f64, lon: f64, alt: f64) -> Self {
         Self {
             id: StationId(id),
@@ -78,6 +79,7 @@ impl WeatherStation {
     /// Compute the haversine great-circle distance to another station in km.
     ///
     /// Uses Earth radius R = 6 371 km.
+    #[must_use] 
     pub fn distance_to(&self, other: &WeatherStation) -> f64 {
         const R_KM: f64 = 6_371.0;
         let lat1 = self.latitude.to_radians();
