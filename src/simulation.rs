@@ -72,7 +72,11 @@ pub struct StepResult {
 impl SimulationState {
     /// 初期状態を作成。
     #[must_use]
-    pub const fn new(atmosphere: AtmosphericState, ocean: OceanState, start_timestamp_ns: u64) -> Self {
+    pub const fn new(
+        atmosphere: AtmosphericState,
+        ocean: OceanState,
+        start_timestamp_ns: u64,
+    ) -> Self {
         Self {
             baseline: atmosphere,
             atmosphere,
