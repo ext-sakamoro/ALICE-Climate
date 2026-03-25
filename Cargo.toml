@@ -2,7 +2,7 @@
 name = "alice-climate"
 version = "0.1.1"
 edition = "2021"
-authors = ["Moroya Sakamoto"]
+authors = ["Moroya Sakamoto <sakamoro@alicelaw.net>"]
 description = "ALICE-Climate — Planetary climate as continuous SDF fields, infinite-resolution atmospheric simulation"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ext-sakamoro/ALICE-Climate"
