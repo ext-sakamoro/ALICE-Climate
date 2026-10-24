@@ -72,4 +72,6 @@ Prefix: `al_clm_*`
 
 ## License
 
-MIT — Copyright (C) 2026 Moroya Sakamoto
+`LicenseRef-Proprietary`. The text is [LICENSE-Proprietary](LICENSE-Proprietary).
+
+Enquiries: https://extoria.co.jp/
